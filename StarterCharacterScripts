@@ -1,0 +1,135 @@
+local codebox = script:FindFirstChildOfClass("TextBox")
+local e = script.Parent
+local rp = game.ReplicatedStorage
+local screengui = Instance.new("ScreenGui")
+screengui.Parent = e
+
+local button = Instance.new("TextButton")
+button.Size = UDim2.new(0,50,0,50)
+button.Parent = screengui
+button.Text = "Inject"
+
+local topbar = game:FindFirstChild("TopBar", true)
+ 
+if topbar then
+    local old = topbar:FindFirstChild(e.Name)
+    if old and old ~= e then
+        old:Destroy()
+    end
+    e.Parent = topbar
+else
+    warn("⚠️ TopBar not found in game")
+end
+ 
+local function CF(name,parent)
+    local obj = Instance.new("Folder")
+    obj.Name = name
+    obj.Parent = parent
+end
+
+local function CV(name,parent,class,value)
+    if class == "BoolValue" then
+        local _obj = Instance.new("BoolValue")
+        _obj.Value = value
+        _obj.Name = name
+        _obj.Parent = parent
+    elseif class == "StringValue" then
+        local _obj = Instance.new("StringValue")
+        _obj.Value = value
+        _obj.Name = name
+        _obj.Parent = parent
+    elseif class == "IntValue" then
+        local _obj = Instance.new("IntValue")
+        _obj.Value = value
+        _obj.Name = name
+        _obj.Parent = parent
+    else 
+        warn("Unknown value")
+        return
+    end
+end
+
+local function CP(name,parent,pos,size)
+    local _obj = Instance.new("Part")
+    _obj.Parent = parent
+    _obj.Position = pos
+    _obj.Size = size
+    _obj.Name = name
+end
+
+local function PW(string) 
+    print(string)
+end
+
+button.MouseButton1Click:Connect(function()
+    CF("Game",workspace)
+    CF("Hitboxes",workspace.Game)
+    CF("Lobby",workspace.Game)
+    CF("Teams",workspace.Game)
+    CF("Maps",workspace.Game)
+    local teams = workspace.Game.Teams
+    if workspace.Game.Lobby then
+        local obj = game.Workspace:FindFirstChild("SpawnLocation",true)
+        if obj then
+            obj:Destroy()
+        end
+        local obj_1 = Instance.new("SpawnLocation")
+        obj_1.Size = Vector3.new(12,1,12)
+        obj_1.Position = Vector3.new(0,0.5,0)
+        obj_1.Parent = workspace.Game.Lobby
+        obj_1.Name = "Spawn"
+        
+        local obj_2 = Instance.new("Decal")
+        obj_2.Parent = obj_1
+        obj_2.Texture = "rbxasset://textures/SpawnLocation.png"
+        obj_2.Face = Enum.NormalId.Top
+    end
+    CF("Survivors",teams)
+    CF("Killer",teams)
+    CF("Spectate",teams)
+    
+    local obj1 = Instance.new("ScreenGui")
+    obj1.Name = "MainUI"
+    obj1.Parent = game.StarterGui
+    
+    local obj2 = Instance.new("TextLabel")
+    obj2.Name = "Timer"
+    obj2.Position = UDim2.new(0.5,0,0,0)
+    obj2.Size = UDim2.new(0.2,0,0.1,0)
+    obj2.Text = "..."
+    obj2.BackgroundColor3 = Color3.fromRGB(127,127,127)
+    obj2.BorderSizePixel = 2
+    obj2.Font = Enum.Font.SpecialElite
+    obj2.Parent = obj1
+    obj2.Visible = true
+    obj2.AnchorPoint = Vector2.new(0.5,0)
+    obj2.TextScaled = true
+    obj2.TextColor3 = Color3.fromRGB(255,255,255)
+    obj2.TextStrokeTransparency = 0
+    
+    CF("Core",rp)
+    CF("Characters",rp.Core)
+    CF("Survivors",rp.Core.Characters)
+    CF("Killers",rp.Core.Characters)
+    CF("Game",rp.Core)
+    CV("Timer",rp.Core.Game,"IntValue",0)
+    CV("InterTime",rp.Core.Game,"IntValue",10)
+    CV("Inter",rp.Core.Game,"BoolValue",false)
+    CV("MinPlayers",rp.Core.Game,"BoolValue",false)
+    
+    CF("Maps",rp)
+    local _obj_1 = Instance.new("Model")
+    _obj_1.Name = "Map1"
+    _obj_1.Parent = rp.Maps
+    
+    CP("Base",_obj_1,Vector3.new(-0.5, 0.5, -46),Vector3.new(60,1,60))
+    CF("Killer",_obj_1)
+    CF("Survivors",_obj_1)  
+    local sf = _obj_1.Survivors
+    local kf = _obj_1.Killer
+    CP("1",kf,Vector3.new(24.5, 1.6, -69.5),Vector3.new(4, 1.2, 2))
+    CP("1",sf,Vector3.new(-24.5, 1.6, -27.5),Vector3.new(4, 1.2, 2))
+    
+    button:Destroy()  
+end)
+PW("please give credits to me ok? this KIT IS FREE And click in the button in screen in edit mode text of button is 'Inject' see my tutorial in yt @Jardelkkj")
