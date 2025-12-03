@@ -1,0 +1,21 @@
+local char = game.Players.LocalPlayer.Character
+local timer = game.ReplicatedStorage.Core.Game:WaitForChild("Timer")
+local inter = game.ReplicatedStorage.Core.Game:WaitForChild("Inter")
+local interTime = game.ReplicatedStorage.Core.Game:WaitForChild("InterTime")
+local waitplr = game.ReplicatedStorage.Core.Game:WaitForChild("MinPlayers") -- BoolValue
+local killer = game.Workspace.Game.Teams.Killer
+local surv = game.Workspace.Game.Teams.Survivors
+
+ 
+while true do
+    task.wait(0.05)
+    if waitplr.Value == true then
+        script.Parent.Text = "Waiting for more players!"
+    else
+        if inter.Value == false then
+            script.Parent.Text = "Round Ends in : " .. timer.Value
+        else
+            script.Parent.Text = "Round Starts in : " .. interTime.Value
+        end
+    end
+end
