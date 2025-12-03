@@ -1,0 +1,22 @@
+game.Players.PlayerAdded:Connect(function(var1)
+    
+    local var2 = Instance.new("Folder")
+    var2.Parent = var1
+    var2.Name = "leaderstats"
+    
+    local var3 = Instance.new("StringValue")
+    var3.Parent = var2
+    var3.Value = "Killer"
+    var3.Name = "KillerSelected"
+    
+    local var4 = Instance.new("StringValue")
+    var4.Parent = var2
+    var4.Value = "Survivor"
+    var4.Name = "SurvivorSelected"
+    
+    local var5 = Instance.new("IntValue")
+    var5.Name = "Points"
+    var5.Value = 0
+    var5.Parent = var2
+    
+end)
