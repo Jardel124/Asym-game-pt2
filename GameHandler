@@ -1,0 +1,577 @@
+
+ 
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local Config = {
+IntermissionTime = 3,
+RoundTime = 30,
+ExtraTimePerSurvivorOut = 30,
+MinPlayersToStart = 1,
+TestMode = false,
+DelayBeforeCheck = 5,
+MalicePerMinute = 1
+}
+
+local Maps = {
+Folder = ReplicatedStorage:WaitForChild("Maps"),
+Container = Workspace.Game:WaitForChild("Maps")
+}
+
+local Teams = {
+Killer = Workspace.Game.Teams:WaitForChild("Killer"),
+Survivors = Workspace.Game.Teams:WaitForChild("Survivors")
+}
+
+local Values = {
+Timer = ReplicatedStorage.Core.Game:WaitForChild("Timer"),
+IsIntermission = ReplicatedStorage.Core.Game:WaitForChild("Inter"),
+IntermissionTime = ReplicatedStorage.Core.Game:WaitForChild("InterTime")
+}
+
+local Spawns = {
+Lobby = Workspace.Game.Lobby:WaitForChild("Spawn")
+}
+
+local RoundData = {
+CurrentMap = nil,
+LastMap = nil,
+CurrentKiller = nil,
+TimerPaused = false,
+RoundActive = false,
+CheckEnabled = false,
+MaliceTimers = {}
+}
+
+local function ShuffleTable(tbl)
+    for i = #tbl, 2, -1 do
+        local j = math.random(1, i)
+        tbl[i], tbl[j] = tbl[j], tbl[i]
+    end
+end
+
+local function GetAlivePlayers()
+    return Players:GetPlayers()
+end
+
+local function IsPlayerValid(player)
+    return player and player.Parent == Players
+end
+
+local function GetMalice(player)
+    if not IsPlayerValid(player) then return 0 end
+    
+    local leaderstats = player:FindFirstChild("leaderstats")
+    if leaderstats then
+        local malice = leaderstats:FindFirstChild("Malice")
+        if malice then
+            return malice.Value
+        end
+    end
+    return 0
+end
+
+local function SetMalice(player, value)
+    if not IsPlayerValid(player) then return end
+    
+    local leaderstats = player:FindFirstChild("leaderstats")
+    if leaderstats then
+        local malice = leaderstats:FindFirstChild("Malice")
+        if malice then
+            malice.Value = value
+        end
+    end
+end
+
+local function AddMalice(player, value)
+    if not IsPlayerValid(player) then return end
+    
+    local leaderstats = player:FindFirstChild("leaderstats")
+    if leaderstats then
+        local malice = leaderstats:FindFirstChild("Malice")
+        if malice then
+            malice.Value = malice.Value + value
+        end
+    end
+end
+
+local function IsKillerValid()
+    if not RoundData.CurrentKiller then
+        return false
+    end
+    
+    if not IsPlayerValid(RoundData.CurrentKiller) then
+        return false
+    end
+    
+    if RoundData.CurrentKiller.Character then
+        if RoundData.CurrentKiller.Character.Parent ~= Teams.Killer then
+            return false
+        end
+    else
+        return false
+    end
+    
+    return true
+end
+
+local function GetAliveSurvivors()
+    local count = 0
+    local survivorModels = Teams.Survivors:GetChildren()
+    
+    for _, model in ipairs(survivorModels) do
+        local player = Players:FindFirstChild(model.Name)
+        if player then
+            count = count + 1
+        end
+    end
+    
+    return count
+end
+
+local function SelectRandomMap()
+    local availableMaps = Maps.Folder:GetChildren()
+    
+    if #availableMaps == 0 then
+        warn("No maps available!")
+        return nil
+    end
+    
+    local selectedMap = availableMaps[math.random(1, #availableMaps)]
+    
+    while selectedMap == RoundData.LastMap and #availableMaps > 1 do
+        selectedMap = availableMaps[math.random(1, #availableMaps)]
+    end
+    
+    RoundData.LastMap = selectedMap
+    return selectedMap
+end
+
+local function LoadMap()
+    local mapTemplate = SelectRandomMap()
+    
+    if not mapTemplate then
+        return false
+    end
+    
+    RoundData.CurrentMap = mapTemplate:Clone()
+    RoundData.CurrentMap.Parent = Maps.Container
+    
+    return true
+end
+
+local function UnloadMap()
+    if RoundData.CurrentMap then
+        RoundData.CurrentMap:Destroy()
+        RoundData.CurrentMap = nil
+    end
+    
+    for _, map in ipairs(Maps.Container:GetChildren()) do
+        map:Destroy()
+    end
+end
+
+local function TeleportToLobby(player)
+    if not player.Character then return end
+    
+    local humanoidRootPart = player.Character:FindFirstChild("HumanoidRootPart")
+    if humanoidRootPart then
+        humanoidRootPart.CFrame = Spawns.Lobby.CFrame + Vector3.new(0, 3, 0)
+    end
+end
+
+local function SelectKillerByMalice()
+    local players = GetAlivePlayers()
+    
+    if #players == 0 then
+        return nil
+    end
+    
+    local highestMalice = -1
+    local selectedKiller = nil
+    
+    for _, player in ipairs(players) do
+        local malice = GetMalice(player)
+        if malice > highestMalice then
+            highestMalice = malice
+            selectedKiller = player
+        end
+    end
+    
+    if selectedKiller then
+        SetMalice(selectedKiller, 0)
+        print(selectedKiller.Name .. " selected as killer with " .. highestMalice .. " malice (reset to 0)")
+    end
+    
+    return selectedKiller
+end
+
+local function StopMaliceTimer(player)
+    if RoundData.MaliceTimers[player] then
+        RoundData.MaliceTimers[player]:Disconnect()
+        RoundData.MaliceTimers[player] = nil
+    end
+end
+
+local function StartMaliceTimer(player)
+    StopMaliceTimer(player)
+    
+    local elapsed = 0
+    RoundData.MaliceTimers[player] = game:GetService("RunService").Heartbeat:Connect(function(dt)
+        if not RoundData.RoundActive then
+            StopMaliceTimer(player)
+            return
+        end
+        
+        if not IsPlayerValid(player) then
+            StopMaliceTimer(player)
+            return
+        end
+        
+        if player.Character and player.Character.Parent == Teams.Survivors then
+            elapsed = elapsed + dt
+            
+            if elapsed >= 60 then
+                AddMalice(player, Config.MalicePerMinute)
+                print(player.Name .. " gained " .. Config.MalicePerMinute .. " malice (survived 1 minute)")
+                elapsed = 0
+            end
+        end
+    end)
+end
+
+local function StopAllMaliceTimers()
+    for player, connection in pairs(RoundData.MaliceTimers) do
+        connection:Disconnect()
+    end
+    RoundData.MaliceTimers = {}
+end
+
+local function TeleportPlayers()
+    if not RoundData.CurrentMap then
+        warn("No map loaded to teleport players!")
+        return
+    end
+    
+    local killerSpawns = RoundData.CurrentMap.Killer:GetChildren()
+    local survivorSpawns = RoundData.CurrentMap.Survivors:GetChildren()
+    
+    if #killerSpawns == 0 or #survivorSpawns == 0 then
+        warn("Spawns not found in map!")
+        return
+    end
+    
+    ShuffleTable(survivorSpawns)
+    
+    RoundData.CurrentKiller = SelectKillerByMalice()
+    
+    if RoundData.CurrentKiller and RoundData.CurrentKiller.Character then
+        RoundData.CurrentKiller.Character.Parent = Teams.Killer
+        
+        local hrp = RoundData.CurrentKiller.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.CFrame = killerSpawns[1].CFrame + Vector3.new(0, 3, 0)
+        end
+    end
+    
+    local spawnIndex = 1
+    local players = GetAlivePlayers()
+    
+    for _, player in ipairs(players) do
+        if player ~= RoundData.CurrentKiller and player.Character then
+            player.Character.Parent = Teams.Survivors
+            
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            if hrp and survivorSpawns[spawnIndex] then
+                hrp.CFrame = survivorSpawns[spawnIndex].CFrame + Vector3.new(0, 3, 0)
+            end
+            
+            StartMaliceTimer(player)
+            
+            spawnIndex = spawnIndex + 1
+            if spawnIndex > #survivorSpawns then
+                spawnIndex = #survivorSpawns
+            end
+        end
+    end
+end
+
+local function ReturnAllToLobby()
+    StopAllMaliceTimers()
+    
+    for _, char in ipairs(Teams.Killer:GetChildren()) do
+        char.Parent = Workspace.Game.Teams.Spectate
+    end
+    
+    for _, char in ipairs(Teams.Survivors:GetChildren()) do
+        char.Parent = Workspace.Game.Teams.Spectate
+    end
+    
+    task.wait(0.1)
+    
+    for _, player in ipairs(GetAlivePlayers()) do
+        if player.Character then
+            TeleportToLobby(player)
+        end
+    end
+end
+
+local function GivePoints(player, points)
+    if not IsPlayerValid(player) then return end
+    
+    local leaderstats = player:FindFirstChild("leaderstats")
+    if leaderstats then
+        local pointsValue = leaderstats:FindFirstChild("Points")
+        if pointsValue then
+            pointsValue.Value = pointsValue.Value + points
+        end
+    end
+end
+
+local function UpdateKillerStats(stat, value)
+    if not IsPlayerValid(RoundData.CurrentKiller) then return end
+    
+    local leaderstats = RoundData.CurrentKiller:FindFirstChild("leaderstats")
+    if leaderstats then
+        local statValue = leaderstats:FindFirstChild(stat)
+        if statValue then
+            statValue.Value = statValue.Value + value
+        end
+    end
+end
+
+local function UpdateSurvivorStats(player, stat, value)
+    if not IsPlayerValid(player) then return end
+    
+    local leaderstats = player:FindFirstChild("leaderstats")
+    if leaderstats then
+        local statValue = leaderstats:FindFirstChild(stat)
+        if statValue then
+            statValue.Value = statValue.Value + value
+        end
+    end
+end
+
+local function Intermission()
+    Values.IsIntermission.Value = true
+    Values.IntermissionTime.Value = Config.IntermissionTime
+    
+    while Values.IntermissionTime.Value > 0 do
+        task.wait(1)
+        if not RoundData.TimerPaused then
+            Values.IntermissionTime.Value = Values.IntermissionTime.Value - 1
+        end
+    end
+    
+    Values.IsIntermission.Value = false
+end
+
+local function RunRound()
+    RoundData.RoundActive = true
+    RoundData.CheckEnabled = false
+    Values.Timer.Value = Config.RoundTime
+    
+    print("Waiting " .. Config.DelayBeforeCheck .. "s before activating checks...")
+    local delayTimer = Config.DelayBeforeCheck
+    
+    while delayTimer > 0 do
+        task.wait(1)
+        if not RoundData.TimerPaused then
+            delayTimer = delayTimer - 1
+            Values.Timer.Value = Values.Timer.Value - 1
+        end
+    end
+    
+    RoundData.CheckEnabled = true
+    print("Checks activated!")
+    
+    while Values.Timer.Value > 0 do
+        task.wait(1)
+        
+        if not RoundData.TimerPaused then
+            if RoundData.CheckEnabled then
+                if not IsKillerValid() then
+                    print("Killer left or no longer exists - Survivors win!")
+                    
+                    local survivors = Teams.Survivors:GetChildren()
+                    
+                    for _, survivorModel in ipairs(survivors) do
+                        local player = Players:FindFirstChild(survivorModel.Name)
+                        
+                        if player then
+                            GivePoints(player, 50)
+                            UpdateSurvivorStats(player, "SurvivorWins", 1)
+                        end
+                    end
+                    
+                    RoundData.RoundActive = false
+                    StopAllMaliceTimers()
+                    return "survivor_win_killer_left"
+                end
+                
+                local survivorsAlive = GetAliveSurvivors()
+                
+                if survivorsAlive == 0 then
+                    print("All survivors eliminated or left!")
+                    GivePoints(RoundData.CurrentKiller, 50)
+                    UpdateKillerStats("KillerWins", 1)
+                    RoundData.RoundActive = false
+                    StopAllMaliceTimers()
+                    return "killer_win"
+                end
+                
+                if survivorsAlive == 1 and Values.Timer.Value > 60 then
+                    print("LMS detected! Adjusting timer to 60 seconds.")
+                    Values.Timer.Value = 60
+                end
+            end
+            
+            Values.Timer.Value = Values.Timer.Value - 1
+        end
+    end
+    
+    local survivors = Teams.Survivors:GetChildren()
+    
+    for _, survivorModel in ipairs(survivors) do
+        local player = Players:FindFirstChild(survivorModel.Name)
+        
+        if player then
+            GivePoints(player, 50)
+            UpdateSurvivorStats(player, "SurvivorWins", 1)
+        end
+    end
+    
+    if IsPlayerValid(RoundData.CurrentKiller) then
+        GivePoints(RoundData.CurrentKiller, 10)
+        UpdateKillerStats("KillerLoses", 1)
+    end
+    
+    RoundData.RoundActive = false
+    StopAllMaliceTimers()
+    return "survivor_win"
+end
+
+Teams.Survivors.ChildRemoved:Connect(function(character)
+    if Values.Timer.Value > 0 and RoundData.RoundActive then
+        Values.Timer.Value = Values.Timer.Value + Config.ExtraTimePerSurvivorOut
+    end
+    
+    local player = Players:FindFirstChild(character.Name)
+    if player then
+        StopMaliceTimer(player)
+    end
+end)
+
+Teams.Killer.ChildRemoved:Connect(function(character)
+    if RoundData.RoundActive and RoundData.CheckEnabled and RoundData.CurrentKiller then
+        if character.Name == RoundData.CurrentKiller.Name then
+            print("Killer removed from team during round!")
+        end
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    StopMaliceTimer(player)
+    
+    if RoundData.RoundActive and RoundData.CurrentKiller == player then
+        print("Killer left the game during round!")
+    end
+end)
+
+if Config.TestMode then
+    Players.PlayerAdded:Connect(function(player)
+        player.Chatted:Connect(function(message)
+            local msg = string.lower(message)
+            
+            if msg == "!stop" then
+                RoundData.TimerPaused = true
+                print("Timer paused")
+                
+            elseif msg == "!unstop" then
+                RoundData.TimerPaused = false
+                print("Timer unpaused")
+                
+            elseif msg == "!addtime" then
+                Values.Timer.Value = Values.Timer.Value + 20
+                print("20 seconds added")
+                
+            elseif msg == "!skip" then
+                Values.Timer.Value = 1
+                print("Round skipped")
+                
+            elseif msg == "!start" then
+                Values.IntermissionTime.Value = 1
+                print("Intermission skipped")
+                
+            elseif msg == "!end" then
+                Values.Timer.Value = 1
+                print("Round ended")
+                
+            elseif msg == "!killer" then
+                if player.Character then
+                    player.Character.Parent = Teams.Killer
+                    print(player.Name .. " moved to Killer")
+                end
+                
+            elseif msg == "!survivor" then
+                if player.Character then
+                    player.Character.Parent = Teams.Survivors
+                    print(player.Name .. " moved to Survivors")
+                end
+                
+            elseif msg == "!leavekiller" then
+                if RoundData.CurrentKiller and RoundData.CurrentKiller.Character then
+                    RoundData.CurrentKiller.Character.Parent = Workspace.Game.Teams.Spectate
+                    print("Killer removed from team (test)")
+                end
+                
+            elseif msg == "!enablecheck" then
+                RoundData.CheckEnabled = true
+                print("Checks forced enabled")
+                
+            elseif msg:sub(1, 8) == "!malice " then
+                local amount = tonumber(msg:sub(9))
+                if amount then
+                    AddMalice(player, amount)
+                    print(player.Name .. " received " .. amount .. " malice")
+                end
+                
+            elseif msg == "!showmalice" then
+                print(player.Name .. " has " .. GetMalice(player) .. " malice")
+            end
+        end)
+    end)
+end
+
+local WaitPlayer = game.ReplicatedStorage.Core.Game.MinPlayers
+
+while true do
+    if not Config.TestMode then
+        while #GetAlivePlayers() < Config.MinPlayersToStart do
+            task.wait(2)   
+            WaitPlayer.Value = true
+        end
+    end
+    WaitPlayer.Value = false
+    
+    Intermission()
+    
+    if not LoadMap() then
+        warn("Error loading map, waiting for next cycle...")
+        task.wait(5)
+    else
+        TeleportPlayers()
+        
+        local result = RunRound()
+        print("Round finished: " .. result)
+        
+        UnloadMap()
+        
+        ReturnAllToLobby()
+        
+        RoundData.CurrentKiller = nil
+        
+        task.wait(2)
+    end
+end
