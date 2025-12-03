@@ -1,0 +1,201 @@
+local survivorsFolder = game.Workspace.Game.Teams.Survivors
+local killersFolder = game.Workspace.Game.Teams.Killer
+local charactersFolder = game.ReplicatedStorage.Core:WaitForChild("Characters")
+local Players = game:GetService("Players")
+ 
+local morphedPlayers = {}
+local processingMorph = {}
+ 
+local function RemoveMorph(player)
+    if not morphedPlayers[player] then return end
+    
+    processingMorph[player] = true
+    
+    if player.Backpack then
+        player.Backpack:ClearAllChildren()
+    end
+    
+    player:SetAttribute("IsMorphed", false)
+    
+    if player.Character then
+        player:LoadCharacter()
+    end
+    
+    morphedPlayers[player] = nil
+    
+    task.wait(0.5)
+    processingMorph[player] = nil
+end
+ 
+local function GiveBackpackItems(player, morphModel)
+    local backpackFolder = morphModel:FindFirstChild("Backpack")
+    
+    if not backpackFolder then
+        return
+    end
+    
+    for _, item in ipairs(backpackFolder:GetChildren()) do
+        if item:IsA("Tool") or item:IsA("HopperBin") then
+            local itemClone = item:Clone()
+            itemClone.Parent = player.Backpack
+        end
+    end
+end
+ 
+local function MorphPlayer(player, morphType, targetFolder)
+    if processingMorph[player] then
+        return
+    end
+    
+    if player:GetAttribute("IsMorphed") == true then
+        return
+    end
+    
+    if morphedPlayers[player] then
+        return
+    end
+    
+    processingMorph[player] = true
+    
+    local leaderstats = player:FindFirstChild("leaderstats")
+    if not leaderstats then
+        processingMorph[player] = nil
+        return
+    end
+    
+    local selectedValue
+    local characterTypeFolder
+    
+    if morphType == "Killer" then
+        selectedValue = leaderstats:FindFirstChild("KillerSelected")
+        characterTypeFolder = charactersFolder:FindFirstChild("Killers")
+    elseif morphType == "Survivor" then
+        selectedValue = leaderstats:FindFirstChild("SurvivorSelected")
+        characterTypeFolder = charactersFolder:FindFirstChild("Survivors")
+    else
+        processingMorph[player] = nil
+        return
+    end
+    
+    if not characterTypeFolder or not selectedValue then
+        processingMorph[player] = nil
+        return
+    end
+    
+    local morphName = selectedValue.Value
+    
+    if morphName == "" or morphName == nil then
+        processingMorph[player] = nil
+        return
+    end
+    
+    local morphModel = characterTypeFolder:FindFirstChild(morphName)
+    if not morphModel then
+        processingMorph[player] = nil
+        return
+    end
+    
+    local clone = morphModel:Clone()
+    clone.Name = player.Name
+    
+    local backpackInClone = clone:FindFirstChild("Backpack")
+    if backpackInClone then
+        backpackInClone:Destroy()
+    end
+    
+    local oldChar = player.Character
+    local hrp = oldChar and oldChar:FindFirstChild("HumanoidRootPart")
+    local pos = hrp and hrp.CFrame or CFrame.new(0, 5, 0)
+    
+    clone:WaitForChild("HumanoidRootPart").CFrame = pos
+    
+    if oldChar then
+        for _, item in ipairs(oldChar:GetChildren()) do
+            if item:IsA("Tool") or item:IsA("LuaSourceContainer") then
+                item.Parent = clone
+            end
+        end
+    end
+    
+    player.Character = clone
+    clone.Parent = targetFolder
+    
+    player:SetAttribute("IsMorphed", true)
+    morphedPlayers[player] = true
+    
+    task.wait(0.1)
+    GiveBackpackItems(player, morphModel)
+    
+    task.wait(0.3)
+    processingMorph[player] = nil
+end
+ 
+local function HandleChildAdded(model, morphType, parentFolder)
+    if not model:IsA("Model") then return end
+    
+    local player = Players:FindFirstChild(model.Name)
+    
+    if player then
+        if processingMorph[player] then
+            return
+        end
+        
+        if player:GetAttribute("IsMorphed") == true then
+            return
+        end
+        
+        task.wait(0.1)
+        MorphPlayer(player, morphType, parentFolder)
+    end
+end
+ 
+local function HandleChildRemoved(model)
+    if not model:IsA("Model") then return end
+    
+    local player = Players:FindFirstChild(model.Name)
+    
+    if player and morphedPlayers[player] then
+        RemoveMorph(player)
+    end
+end
+ 
+survivorsFolder.ChildAdded:Connect(function(model)
+    HandleChildAdded(model, "Survivor", survivorsFolder)
+end)
+ 
+survivorsFolder.ChildRemoved:Connect(function(model)
+    HandleChildRemoved(model)
+end)
+ 
+killersFolder.ChildAdded:Connect(function(model)
+    HandleChildAdded(model, "Killer", killersFolder)
+end)
+ 
+killersFolder.ChildRemoved:Connect(function(model)
+    HandleChildRemoved(model)
+end)
+ 
+task.spawn(function()
+    while true do
+        task.wait(2)
+        
+        for player, _ in pairs(morphedPlayers) do
+            if player and player.Parent then
+                local characterInSurvivors = survivorsFolder:FindFirstChild(player.Name)
+                local characterInKillers = killersFolder:FindFirstChild(player.Name)
+                
+                if not characterInSurvivors and not characterInKillers then
+                    RemoveMorph(player)
+                end
+            else
+                morphedPlayers[player] = nil
+                processingMorph[player] = nil
+            end
+        end
+    end
+end)
+ 
+Players.PlayerRemoving:Connect(function(player)
+    morphedPlayers[player] = nil
+    processingMorph[player] = nil
+end)
